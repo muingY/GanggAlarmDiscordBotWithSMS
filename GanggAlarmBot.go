@@ -8,10 +8,10 @@ import (
 	"encoding/csv"
 	"fmt"
 	"github.com/bwmarrin/discordgo"
+	"github.com/mattn/go-tty"
+	"log"
 	"os"
-	"os/signal"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -42,6 +42,29 @@ func UpdateDBTable(filename string, dataTable [][]string) error {
 	}
 	file.Close()
 	return nil
+}
+
+func GetKeyEvent() rune {
+	var ret rune
+
+	tty, err := tty.Open()
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer tty.Close()
+
+	for {
+		r, err := tty.ReadRune()
+		if err != nil {
+			log.Fatal(err)
+		}
+		if r != 0 {
+			ret = r
+			break
+		}
+	}
+
+	return ret
 }
 
 var DB [][]string
@@ -167,11 +190,8 @@ func main() {
 
 	/* Run */
 	discordBot.Activate()
-	fmt.Println("> Bot running... Press CTRL-C to exit.")
+	fmt.Println("> Bot running... Press Q to exit.")
 	var alarmSwitch map[string]bool = make(map[string]bool)
-	for _, row := range DB {
-		alarmSwitch[row[0]] = false
-	}
 	for {
 		DB, _ = GetDBTable("UserTable.csv")
 		for _, row := range DB {
@@ -180,8 +200,20 @@ func main() {
 				alarmSwitch[row[0]] = false
 			}
 		}
+		for key, _ := range alarmSwitch {
+			var bGhost bool = true
+			for _, row := range DB {
+				if row[0] == key {
+					bGhost = false
+					break
+				}
+			}
+			if bGhost {
+				delete(alarmSwitch, key)
+			}
+		}
 		if twitchCore.IsStreamerLive("rkdwl12") {
-			fmt.Println("twitchCore > rkdwl12 stream on")
+			fmt.Println("twitchCore > rkdwl12 stream on.")
 			for index, _ := range DB {
 				if alarmSwitch[DB[index][0]] == false {
 					fmt.Println("Core > Stream Alarm for " + DB[index][0])
@@ -197,12 +229,29 @@ func main() {
 					alarmSwitch[DB[index][0]] = true
 				}
 			}
+		} else {
+			fmt.Println("twitchCore > rkdwl12 stream off.")
+			for key, value := range alarmSwitch {
+				if value {
+					alarmSwitch[key] = false
+				}
+			}
 		}
-		time.Sleep(30 * time.Second)
+		// == time.Sleep(20 * time.Second)
+		var deltaTime time.Duration
+		var startTime time.Time
+		for deltaTime.Seconds() < 20 {
+			startTime = time.Now()
+			input := GetKeyEvent()
+			if input == 113 {
+				/* Destroy */
+				discordBot.Destroy()
+				fmt.Println("discordBot > Destroy")
+				return
+			}
+			deltaTime -= startTime.Sub(time.Now())
+		}
 	}
-	sc := make(chan os.Signal, 1)
-	signal.Notify(sc, syscall.SIGINT, syscall.SIGTERM, os.Interrupt, os.Kill)
-	<-sc
 
 	/* Destroy */
 	discordBot.Destroy()
