@@ -187,6 +187,18 @@ func main() {
 		return
 	}
 	fmt.Println("DB > Connected.")
+	ch := make(chan string)
+	go func(ch chan string) {
+		// disable input buffering
+		exec.Command("stty", "-F", "/dev/tty", "cbreak", "min", "1").Run()
+		// do not display entered characters on the screen
+		exec.Command("stty", "-F", "/dev/tty", "-echo").Run()
+		var b = make([]byte, 1)
+		for {
+			os.Stdin.Read(b)
+			ch <- string(b)
+		}
+	}(ch)
 
 	/* Run */
 	discordBot.Activate()
@@ -224,7 +236,7 @@ func main() {
 					}
 					// Send SMS.
 					if DB[index][2] == "y" {
-						solSMSCore.SendSMS(DB[index][3], "---phone number---", "감자의 생방송이 시작대떠 :P")
+						solSMSCore.SendSMS(DB[index][3], "01082575256", "감자의 생방송이 시작대떠 :P")
 					}
 					alarmSwitch[DB[index][0]] = true
 				}
@@ -242,13 +254,17 @@ func main() {
 		var startTime time.Time
 		for deltaTime.Seconds() < 20 {
 			startTime = time.Now()
-			input := GetKeyEvent()
-			if input == 113 {
-				/* Destroy */
-				discordBot.Destroy()
-				fmt.Println("discordBot > Destroy")
-				return
+			select {
+			case input, _ := <-ch:
+				if input == "q" {
+					/* Destroy */
+					discordBot.Destroy()
+					fmt.Println("discordBot > Destroy")
+					return
+				}
+			default:
 			}
+			time.Sleep(time.Millisecond * 10)
 			deltaTime -= startTime.Sub(time.Now())
 		}
 	}
