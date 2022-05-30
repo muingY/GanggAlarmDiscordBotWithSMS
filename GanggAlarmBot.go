@@ -8,9 +8,10 @@ import (
 	"encoding/csv"
 	"fmt"
 	"github.com/bwmarrin/discordgo"
-	"github.com/mattn/go-tty"
-	"log"
+	"math/rand"
 	"os"
+	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -44,30 +45,14 @@ func UpdateDBTable(filename string, dataTable [][]string) error {
 	return nil
 }
 
-func GetKeyEvent() rune {
-	var ret rune
+var DB [][]string
 
-	tty, err := tty.Open()
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer tty.Close()
-
-	for {
-		r, err := tty.ReadRune()
-		if err != nil {
-			log.Fatal(err)
-		}
-		if r != 0 {
-			ret = r
-			break
-		}
-	}
-
-	return ret
+type prCell struct {
+	userId    string
+	userPhone string
 }
 
-var DB [][]string
+var prDB map[string]prCell = make(map[string]prCell)
 
 func DBDataRemove(slice [][]string, s int) [][]string {
 	return append(slice[:s], slice[s+1:]...)
@@ -80,14 +65,14 @@ func MessageHandler(session *discordgo.Session, mc *discordgo.MessageCreate) {
 
 	msgSplit := strings.Split(mc.Content, " ")
 
-	if msgSplit[0] == "!GanggAlarmBot" {
-		if msgSplit[0] == "!GanggAlarmBot" && len(msgSplit) == 1 {
-			session.ChannelMessageSend(mc.ChannelID, "[강지 방송 알람봇] \n등록하시게 되면 강지 방송이 켜졌을 때 멘션 알람을 드립니다. 필요하시다면 원하시는 전화번호로 SMS도 날려드려요.\n [가이드]\n - !GanggAlarmBot registerMe : 사용자 등록.\n - !GanggAlarmBot unregisterMe : 사용자 등록 해제.\n - !GanggAlarmBot registerSMS 01012341234: 입력된 전화번호로 SMS 서비스 등록.")
+	if msgSplit[0] == "!gbot" {
+		if msgSplit[0] == "!gbot" && len(msgSplit) == 1 {
+			session.ChannelMessageSend(mc.ChannelID, "[ 강지 방송 알람봇 GBOT ] \n강지 방송을 놓치는 일이 없도록 방송 알람을 제공하는 gbot 입니다. 등록하시게 되면 기본적으로 디스코드 멘션 메시지로 알람을 드립니다. SMS를 추가로 등록하신다면 휴대폰 메시지로도 알람을 받아보실 수 있습니다.\n\n*팬심으로 만들어진 비영리 프로그램으로 SMS 수신에 있어 비용이 드는 관계로 최대 20분까지만 등록하실 수 있습니다.*\n\n [메뉴얼]\n > !gbot -n : 사용자 등록.\n > !gbot -d : 사용자 등록 해제.\n > !gbot -p 01012341234: 입력된 전화번호로 SMS 서비스 등록.")
 			return
 		}
 
 		switch msgSplit[1] {
-		case "registerMe":
+		case "-n":
 			var bExist bool
 			var userId int
 			var row1 []string
@@ -116,8 +101,19 @@ func MessageHandler(session *discordgo.Session, mc *discordgo.MessageCreate) {
 				}
 				session.ChannelMessageSend(mc.ChannelID, "<@"+mc.Author.ID+"> 신규 사용자 등록되었습니다.")
 			}
-		case "registerSMS":
+		case "-p":
 			if len(msgSplit) == 3 {
+				var smsCount int = 0
+				for _, data := range DB {
+					if data[2] == "y" {
+						smsCount++
+					}
+				}
+				if smsCount >= 20 {
+					session.ChannelMessageSend(mc.ChannelID, "<@"+mc.Author.ID+"> SMS 서비스 신청이 마감되었습니다ㅜㅠ. 개발자가 돈이 많아지면 더 늘릴 수 있도록 하겠습니다.")
+					return
+				}
+
 				var bExist bool
 				var userId int
 				var rowtemp []string
@@ -129,28 +125,61 @@ func MessageHandler(session *discordgo.Session, mc *discordgo.MessageCreate) {
 				}
 				if bExist {
 					if DB[userId][2] == "n" {
-						DB[userId][2] = "y"
-						DB[userId][3] = msgSplit[2]
-						_ = UpdateDBTable("UserTable.csv", DB)
-						_, _ = session.ChannelMessageSend(mc.ChannelID, "<@"+mc.Author.ID+"> SMS 서비스가 등록되었습니다.")
+						//DB[userId][2] = "y"
+						//DB[userId][3] = msgSplit[2]
+						//_ = UpdateDBTable("UserTable.csv", DB)
+						//_, _ = session.ChannelMessageSend(mc.ChannelID, "<@"+mc.Author.ID+"> SMS 서비스가 등록되었습니다.")
+						random := rand.New(rand.NewSource(time.Now().UnixNano()))
+						randomNumber := strconv.Itoa(random.Intn(100000)) + strconv.Itoa(len(prDB))
+						prDB[randomNumber] = prCell{DB[userId][0], msgSplit[2]}
+						solSMSCore.SendSMS(msgSplit[2], "01011112222", "GBOT SMS 서비스 등록 인증번호입니다. \n"+randomNumber)
+						session.ChannelMessageSend(mc.ChannelID, "<@"+mc.Author.ID+"> 신청하신 번호로 인증번호를 발송하였습니다.\n!gbot -pp (인증번호) 를 입력하여 인증을 마무리해주세요.")
 					} else if DB[userId][2] == "y" {
-						DB[userId][3] = msgSplit[2]
-						UpdateDBTable("UserTable.csv", DB)
-						session.ChannelMessageSend(mc.ChannelID, "<@"+mc.Author.ID+"> SMS 서비스 등록 정보를 변경하였습니다.")
+						//DB[userId][3] = msgSplit[2]
+						//UpdateDBTable("UserTable.csv", DB)
+						//session.ChannelMessageSend(mc.ChannelID, "<@"+mc.Author.ID+"> SMS 서비스 등록 정보를 변경하였습니다.")
+						random := rand.New(rand.NewSource(time.Now().UnixNano()))
+						randomNumber := strconv.Itoa(random.Intn(100000)) + strconv.Itoa(len(prDB))
+						prDB[randomNumber] = prCell{DB[userId][0], msgSplit[2]}
+						solSMSCore.SendSMS(msgSplit[2], "01011112222", "GBOT SMS 서비스 등록 인증번호입니다. \n"+randomNumber)
+						session.ChannelMessageSend(mc.ChannelID, "<@"+mc.Author.ID+"> 신청하신 번호로 인증번호를 발송하였습니다.\n!gbot -pp (인증번호) 를 입력하여 인증을 마무리해주세요.")
 					}
 				} else {
-					session.ChannelMessageSend(mc.ChannelID, "<@"+mc.Author.ID+"> 등록 실패. !GanggAlarmBot registerMe가 먼저 선행되어야 합니다.")
+					session.ChannelMessageSend(mc.ChannelID, "<@"+mc.Author.ID+"> 등록 실패. !gbot -n 이 먼저 선행되어야 합니다.")
 				}
 			} else {
-				session.ChannelMessageSend(mc.ChannelID, "<@"+mc.Author.ID+"> 등록 실패. !GanggAlarmBot registerSMS 01011112222와 같이 전화번호를 추가로 입력해주세요.")
+				session.ChannelMessageSend(mc.ChannelID, "<@"+mc.Author.ID+"> 등록 실패. !gbot -p 01011112222와 같이 전화번호를 추가로 입력해주세요.")
 			}
-		case "unregisterMe":
+		case "-pp":
+			if len(msgSplit) == 3 {
+				if val, ok := prDB[msgSplit[2]]; ok {
+					for idx, data := range DB {
+						if data[0] == val.userId {
+							DB[idx][2] = "y"
+							DB[idx][3] = val.userPhone
+							UpdateDBTable("UserTable.csv", DB)
+							session.ChannelMessageSend(mc.ChannelID, "<@"+mc.Author.ID+"> SMS 서비스가 등록되었습니다.")
+							delete(prDB, msgSplit[2])
+							break
+						}
+					}
+				} else {
+					session.ChannelMessageSend(mc.ChannelID, "<@"+mc.Author.ID+"> 인증 실패. 유효하지 않은 인증번호입니다.")
+				}
+			} else {
+				session.ChannelMessageSend(mc.ChannelID, "<@"+mc.Author.ID+"> 인증 실패. !gbot -pp (인증번호) 와 같은 형식으로 입력해주세요.")
+			}
+		case "-d":
 			var bExist bool
 			var userId int
 			var row1 []string
 			for userId, row1 = range DB {
 				if row1[0] == mc.Author.ID {
 					DB = DBDataRemove(DB, userId)
+					err := UpdateDBTable("UserTable.csv", DB)
+					if err != nil {
+						fmt.Println("DB > Update DB fail. ", err)
+					}
 					session.ChannelMessageSend(mc.ChannelID, "<@"+mc.Author.ID+"> 등록정보가 삭제되었습니다.")
 					bExist = true
 					break
@@ -163,12 +192,12 @@ func MessageHandler(session *discordgo.Session, mc *discordgo.MessageCreate) {
 	}
 }
 
+var solSMSCore *SolSMSCore.SolSMSCore = &SolSMSCore.SolSMSCore{}
+var twitchCore *TwitchCore.TwitchCore = &TwitchCore.TwitchCore{}
+var discordBot *DiscordBotCore.DiscordBotCore = &DiscordBotCore.DiscordBotCore{}
+
 func main() {
 	fmt.Println("---< Gangg Alarm Bot >---")
-
-	var solSMSCore *SolSMSCore.SolSMSCore = &SolSMSCore.SolSMSCore{}
-	var twitchCore *TwitchCore.TwitchCore = &TwitchCore.TwitchCore{}
-	var discordBot *DiscordBotCore.DiscordBotCore = &DiscordBotCore.DiscordBotCore{}
 
 	/* Initialize */
 	solSMSCore.Initialize()
@@ -236,7 +265,7 @@ func main() {
 					}
 					// Send SMS.
 					if DB[index][2] == "y" {
-						solSMSCore.SendSMS(DB[index][3], "01082575256", "감자의 생방송이 시작대떠 :P")
+						solSMSCore.SendSMS(DB[index][3], "01011112222", "감자의 생방송이 시작대떠 :P")
 					}
 					alarmSwitch[DB[index][0]] = true
 				}
